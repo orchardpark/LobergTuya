@@ -1,6 +1,10 @@
 from typing import override
 import tinytuya
 import json
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+
 
 #consts 
 kesser_heater_product_id: str = "sa7ty0oxseyuzzlp"
@@ -63,7 +67,14 @@ def parse_devices():
                 devices.append(device)
     return devices
 
+def run_dashboard(devices):
+    app = dash.Dash(__name__)
+    app.layout = html.Div([
+        html.H1("Loberg smart heater dashboard", style={"textalign": "center"})
+        ])
+    app.run_server()
+
 
 if __name__ == "__main__":
     devices = parse_devices()
-    print(devices)
+    run_dashboard(devices)
