@@ -2,7 +2,6 @@ from typing import override
 import tinytuya
 import json
 
-
 #consts 
 kesser_heater_product_id: str = "sa7ty0oxseyuzzlp"
 
@@ -48,11 +47,11 @@ class KesserHeater:
 
     @override
     def __str__(self) -> str:
-        return self.get_status()
+        return "Device " + self.name + "\n" +self.get_status()
 
     @override
     def __repr__(self) -> str:
-        return self.get_status()
+        return self.__str__()
 
 def parse_devices():
     devices = []
@@ -66,4 +65,4 @@ def parse_devices():
 
 if __name__ == "__main__":
     devices = parse_devices()
-    print(devices)
+    print("\n\n".join(map(str, devices)))
