@@ -8,30 +8,10 @@ from kivy.uix.button import Button
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.widget import Widget
 from kivy.clock import Clock
-from kivy.graphics import Color, Line, Rectangle, Ellipse
+from kivy.graphics import Color, Line, Rectangle
 import random
+import time
 from collections import deque
-from control import KesserHeater
-
-class HeaterIcon(Widget):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.size_hint = (None, None)
-        self.size = (60, 60)
-        with self.canvas:
-            # Base color
-            Color(0.8, 0.8, 0.8, 1)
-            # Heater body (rectangle)
-            Rectangle(pos=(10, 10), size=(40, 35))
-            # Heater elements (horizontal lines)
-            Color(1, 0.4, 0.2, 1)  # Orange/red for heating elements
-            Line(points=[15, 35, 45, 35], width=2)
-            Line(points=[15, 30, 45, 30], width=2)
-            Line(points=[15, 25, 45, 25], width=2)
-            Line(points=[15, 20, 45, 20], width=2)
-            # Control knob
-            Color(0.5, 0.5, 0.5, 1)
-            Ellipse(pos=(35, 40), size=(10, 10))
 
 
 class TemperatureGraph(Widget):
@@ -87,44 +67,58 @@ class TemperatureGraph(Widget):
                     y = self.y + ((temp - temp_min) / temp_range) * self.height
                     points.extend([x, y])
                 Line(points=points, width=2)
-            
-            # Labels
-            Color(0.7, 0.7, 0.7, 1)
-            # We'll add temperature labels in the main widget
 
 
 class HeaterControl(BoxLayout):
-    def __init__(self, heater_name, kesser_heater: KesserHeater, **kwargs):
+    def __init__(self, heater_name, **kwargs):
         super().__init__(**kwargs)
         self.orientation = 'vertical'
         self.spacing = 10
         self.padding = 20
         
         self.heater_name = heater_name
-        status = kesser_heater.get_status()
-        self.current_temp = status.current_temp
-        self.set_temp = status.set_temp
-        self.power = status.power
-        
-        # Header with title and icon
-        header_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=60, spacing=10)
-        
-        # Heater icon
-        icon = HeaterIcon()
-        header_layout.add_widget(icon)
+        self.current_temp = 20.0  # Starting current temperature
+        self.set_temp = 22.0      # Starting set temperature
+        self.is_on = True         # Heater power state
+        self.is_online = True     # Device connectivity state
         
         # Title
         title = Label(
-            text=f'{heater_name}\nHeater',
-            font_size='18sp',
-            bold=True,
-            halign='left',
-            valign='middle'
+            text=f'{heater_name} Heater',
+            font_size='20sp',
+            size_hint_y=None,
+            height=40,
+            bold=True
         )
-        title.bind(size=title.setter('text_size'))
-        header_layout.add_widget(title)
+        self.add_widget(title)
         
-        self.add_widget(header_layout)
+        # Status indicators
+        status_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=30, spacing=20)
+        
+        # Online/Offline status
+        self.online_status = Label(
+            text='● Online',
+            font_size='14sp',
+            color=(0.2, 0.8, 0.2, 1),  # Green
+            size_hint_x=None,
+            width=80
+        )
+        status_layout.add_widget(self.online_status)
+        
+        # On/Off status
+        self.power_status = Label(
+            text='● On',
+            font_size='14sp',
+            color=(0.2, 0.8, 0.2, 1),  # Green
+            size_hint_x=None,
+            width=60
+        )
+        status_layout.add_widget(self.power_status)
+        
+        # Add spacer
+        status_layout.add_widget(Label())
+        
+        self.add_widget(status_layout)
         
         # Current temperature display
         self.current_temp_label = Label(
@@ -145,7 +139,7 @@ class HeaterControl(BoxLayout):
         self.add_widget(self.set_temp_label)
         
         # Control buttons
-        button_layout = GridLayout(cols=2, spacing=10, size_hint_y=None, height=50)
+        button_layout = GridLayout(cols=3, spacing=10, size_hint_y=None, height=50)
         
         decrease_btn = Button(
             text='−',
@@ -161,7 +155,27 @@ class HeaterControl(BoxLayout):
         )
         button_layout.add_widget(increase_btn)
         
+        # Power toggle button
+        self.power_btn = Button(
+            text='Turn Off',
+            font_size='14sp',
+            background_color=(0.8, 0.2, 0.2, 1),  # Red
+            on_press=self.toggle_power
+        )
+        button_layout.add_widget(self.power_btn)
+        
         self.add_widget(button_layout)
+        
+        # Online toggle button (simulate connectivity)
+        self.online_btn = Button(
+            text='Simulate Offline',
+            font_size='12sp',
+            size_hint_y=None,
+            height=35,
+            background_color=(0.6, 0.6, 0.6, 1),
+            on_press=self.toggle_online
+        )
+        self.add_widget(self.online_btn)
         
         # Temperature graph
         graph_label = Label(
@@ -201,34 +215,93 @@ class HeaterControl(BoxLayout):
         
         self.add_widget(legend_layout)
         
+        # Schedule current temperature updates to simulate real heater behavior
+        Clock.schedule_interval(self.update_current_temp, 2.0)
+        
         # Add initial data point
         self.graph.add_temperature(self.current_temp, self.set_temp)
+        
+        # Update display
+        self.update_display()
     
     def increase_temp(self, instance):
-        if self.set_temp < 30.0:  # Maximum temperature limit
+        if self.is_online and self.set_temp < 30.0:  # Maximum temperature limit
             self.set_temp += 0.5
             self.update_display()
     
     def decrease_temp(self, instance):
-        if self.set_temp > 10.0:  # Minimum temperature limit
+        if self.is_online and self.set_temp > 10.0:  # Minimum temperature limit
             self.set_temp -= 0.5
             self.update_display()
     
-    def update_current_temp(self, current_temp):
-        # Sets the new current temperature, from the heater reading 
-        if abs(temp_diff) > 0.1:
-            # Move current temp towards set temp with some randomness
-            change = temp_diff * 0.1 + random.uniform(-0.2, 0.2)
-            self.current_temp += change
-            self.current_temp = max(5.0, min(35.0, self.current_temp))  # Bounds
+    def toggle_power(self, instance):
+        if self.is_online:
+            self.is_on = not self.is_on
             self.update_display()
-            
+    
+    def toggle_online(self, instance):
+        self.is_online = not self.is_online
+        self.update_display()
+    
+    def update_current_temp(self, dt):
+        if not self.is_online:
+            # When offline, don't update temperature
+            return
+        
+        if self.is_on:
+            # Heater is on - temperature moves toward set temperature
+            temp_diff = self.set_temp - self.current_temp
+            if abs(temp_diff) > 0.1:
+                # Move current temp towards set temp with some randomness
+                change = temp_diff * 0.1 + random.uniform(-0.2, 0.2)
+                self.current_temp += change
+                self.current_temp = max(5.0, min(35.0, self.current_temp))  # Bounds
+        else:
+            # Heater is off - temperature gradually decreases toward ambient (18°C)
+            ambient_temp = 18.0
+            temp_diff = ambient_temp - self.current_temp
+            if abs(temp_diff) > 0.1:
+                change = temp_diff * 0.05 + random.uniform(-0.1, 0.1)
+                self.current_temp += change
+                self.current_temp = max(5.0, min(35.0, self.current_temp))  # Bounds
+        
+        self.update_display()
+        
         # Add to graph every update
         self.graph.add_temperature(self.current_temp, self.set_temp)
     
     def update_display(self):
         self.current_temp_label.text = f'Current: {self.current_temp:.1f}°C'
         self.set_temp_label.text = f'Set: {self.set_temp:.1f}°C'
+        
+        # Update online status
+        if self.is_online:
+            self.online_status.text = '● Online'
+            self.online_status.color = (0.2, 0.8, 0.2, 1)  # Green
+            self.online_btn.text = 'Simulate Offline'
+        else:
+            self.online_status.text = '● Offline'
+            self.online_status.color = (0.8, 0.2, 0.2, 1)  # Red
+            self.online_btn.text = 'Simulate Online'
+        
+        # Update power status and button
+        if self.is_on:
+            self.power_status.text = '● On'
+            self.power_status.color = (0.2, 0.8, 0.2, 1)  # Green
+            self.power_btn.text = 'Turn Off'
+            self.power_btn.background_color = (0.8, 0.2, 0.2, 1)  # Red
+        else:
+            self.power_status.text = '● Off'
+            self.power_status.color = (0.8, 0.2, 0.2, 1)  # Red
+            self.power_btn.text = 'Turn On'
+            self.power_btn.background_color = (0.2, 0.8, 0.2, 1)  # Green
+        
+        # Disable controls when offline
+        if not self.is_online:
+            self.power_btn.disabled = True
+            self.power_btn.background_color = (0.5, 0.5, 0.5, 1)  # Gray
+        else:
+            self.power_btn.disabled = False
 
 
 class LobergTuya(App):
