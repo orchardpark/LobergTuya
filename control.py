@@ -1,9 +1,17 @@
 from typing import override
 import tinytuya
 import json
+from dataclasses import dataclass
 
 #consts 
 kesser_heater_product_id: str = "sa7ty0oxseyuzzlp"
+
+@dataclass
+class KesserHeaterStatus:
+    current_temp: float
+    set_temp: float
+    power: bool
+    offline: bool
 
 # Connect to the heater
 class KesserHeater:
@@ -13,7 +21,7 @@ class KesserHeater:
         self.name: str = name
         self.version: str = version
 
-    def get_status(self):
+    def get_status_str(self):
         """Fetch and display heater status."""
         data = self.heater.status()
         if "dps" in data:
@@ -26,6 +34,15 @@ class KesserHeater:
             return output
         else:
             return "Failed to retrieve status."
+        
+    def get_status(self)->KesserHeaterStatus:
+        data = self.heater.status()
+        if "dps" in data:
+            dps = data["dps"]
+            return KesserHeaterStatus(float(dps.get('3', '-99')), float(dps.get('2', '-99')), dps.get('1'), False)
+        else:
+            return KesserHeaterStatus(0, 0, False, True)
+
 
     def turn_on(self):
         """Turn the heater on."""
@@ -47,7 +64,7 @@ class KesserHeater:
 
     @override
     def __str__(self) -> str:
-        return "Device " + self.name + "\n" +self.get_status()
+        return "Device " + self.name + "\n" +self.get_status_str()
 
     @override
     def __repr__(self) -> str:
