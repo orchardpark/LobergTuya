@@ -9,11 +9,9 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.widget import Widget
 from kivy.clock import Clock
 from kivy.graphics import Color, Line, Rectangle
-from kivy.graphics.instructions import InstructionGroup
 from kivy.core.text import Label as CoreLabel
-import random
 from collections import deque
-from kivy.config import Config
+from control import KesserHeater, parse_devices
 
 
 class TemperatureGraph(Widget):
@@ -95,22 +93,19 @@ class TemperatureGraph(Widget):
 
 
 class HeaterControl(BoxLayout):
-    def __init__(self, heater_name, **kwargs):
+    def __init__(self, kesser_heater: KesserHeater, **kwargs):
         super().__init__(**kwargs)
         self.orientation = 'vertical'
         self.spacing = 10
         self.padding = 20
         
-        self.heater_name = heater_name
-        self.current_temp = 20.0  # Starting current temperature
-        self.set_temp = 22.0      # Starting set temperature
-        self.is_on = True         # Heater power state
-        self.is_online = True     # Device connectivity state
-        self.display_on = True    # Display state
-        
+        self.heater_name = kesser_heater.name
+        self.kesser_heater = kesser_heater
+        self.update_status(True)
+                
         # Title
         title = Label(
-            text=f'{heater_name} Heater',
+            text=f'{self.heater_name} Heater',
             font_size='20sp',
             size_hint_y=None,
             height=40,
@@ -211,17 +206,6 @@ class HeaterControl(BoxLayout):
         
         self.add_widget(button_layout)
         
-        # Online toggle button (simulate connectivity)
-        self.online_btn = Button(
-            text='Simulate Offline',
-            font_size='12sp',
-            size_hint_y=None,
-            height=35,
-            background_color=(0.6, 0.6, 0.6, 1),
-            on_press=self.toggle_online
-        )
-        self.add_widget(self.online_btn)
-        
         # Temperature graph
         graph_label = Label(
             text='Temperature History',
@@ -260,88 +244,60 @@ class HeaterControl(BoxLayout):
         
         self.add_widget(legend_layout)
         
-        # Schedule current temperature updates to simulate real heater behavior
-        Clock.schedule_interval(self.update_current_temp, 2.0)
-        
         # Add initial data point
         self.graph.add_temperature(self.current_temp, self.set_temp)
         
-        # Update display
-        self.update_display()
+        Clock.schedule_interval(lambda _: self.update_status(), 60*5)
+    
+    def update_status(self, first_run=False):
+        status = self.kesser_heater.get_status()
+        self.current_temp = status.current_temp 
+        self.set_temp = status.set_temp
+        self.is_on = status.power
+        self.is_online = status.online
+        self.display_on = status.display
+        if not first_run:
+            self.update_display()
+            self.graph.add_temperature(self.current_temp, self.set_temp)
     
     def increase_temp(self, instance):
-        if self.is_online and self.set_temp < 30.0:  # Maximum temperature limit
-            self.set_temp += 0.5
-            self.update_display()
+        if self.is_online:  
+            self.kesser_heater.set_temperature(self.set_temp+1)
+            self.update_status()
     
     def decrease_temp(self, instance):
-        if self.is_online and self.set_temp > 10.0:  # Minimum temperature limit
-            self.set_temp -= 0.5
-            self.update_display()
+        if self.is_online: 
+            self.kesser_heater.set_temperature(self.set_temp-1)
+            self.update_status()
     
     def toggle_power(self, instance):
         if self.is_online:
-            self.is_on = not self.is_on
-            self.update_display()
+            if self.is_on:
+                self.kesser_heater.turn_off()
+            else:
+                self.kesser_heater.turn_on()
+            self.update_status()
     
     def toggle_display(self, instance):
         if self.is_online:
-            self.display_on = not self.display_on
-            self.update_display()
-    
-    def toggle_online(self, instance):
-        self.is_online = not self.is_online
-        self.update_display()
-    
-    def update_current_temp(self, dt):
-        if not self.is_online:
-            # When offline, don't update temperature
-            return
-        
-        if self.is_on:
-            # Heater is on - temperature moves toward set temperature
-            temp_diff = self.set_temp - self.current_temp
-            if abs(temp_diff) > 0.1:
-                # Move current temp towards set temp with some randomness
-                change = temp_diff * 0.1 + random.uniform(-0.2, 0.2)
-                self.current_temp += change
-                self.current_temp = max(5.0, min(35.0, self.current_temp))  # Bounds
-        else:
-            # Heater is off - temperature gradually decreases toward ambient (18°C)
-            ambient_temp = 18.0
-            temp_diff = ambient_temp - self.current_temp
-            if abs(temp_diff) > 0.1:
-                change = temp_diff * 0.05 + random.uniform(-0.1, 0.1)
-                self.current_temp += change
-                self.current_temp = max(5.0, min(35.0, self.current_temp))  # Bounds
-        
-        self.update_display()
-        
-        # Add to graph every update
-        self.graph.add_temperature(self.current_temp, self.set_temp)
+            if self.display_on:
+                self.kesser_heater.turn_display_off()
+            else:
+                self.kesser_heater.turn_display_on()
+            self.update_status()
     
     def update_display(self):
-        # Update temperature displays based on display state
-        if self.display_on:
-            self.current_temp_label.text = f'Current: {self.current_temp:.1f}°C'
-            self.set_temp_label.text = f'Set: {self.set_temp:.1f}°C'
-            self.current_temp_label.color = (1, 1, 1, 1)  # White
-            self.set_temp_label.color = (1, 1, 1, 1)  # White
-        else:
-            self.current_temp_label.text = 'Current: ---'
-            self.set_temp_label.text = 'Set: ---'
-            self.current_temp_label.color = (0.3, 0.3, 0.3, 1)  # Dark gray
-            self.set_temp_label.color = (0.3, 0.3, 0.3, 1)  # Dark gray
-        
-        # Update online status
+        self.current_temp_label.text = f'Current: {self.current_temp:.1f}°C'
+        self.set_temp_label.text = f'Set: {self.set_temp:.1f}°C'
+        self.current_temp_label.color = (1, 1, 1, 1)  # White
+        self.set_temp_label.color = (1, 1, 1, 1)  # White
+
         if self.is_online:
             self.online_status.text = '● Online'
             self.online_status.color = (0.2, 0.8, 0.2, 1)  # Green
-            self.online_btn.text = 'Simulate Offline'
         else:
             self.online_status.text = '● Offline'
             self.online_status.color = (0.8, 0.2, 0.2, 1)  # Red
-            self.online_btn.text = 'Simulate Online'
         
         # Update power status and button
         if self.is_on:
@@ -380,11 +336,20 @@ class HeaterControl(BoxLayout):
 
 class LobergTuya(App):
     def build(self):
+        
+        devices = parse_devices()
+        
+        living_room_heater = next((d for d in devices if d.name=='Heater 1'), None)
+        bath_room_heater = next((d for d in devices if d.name=='Heater 2'), None)
+        
+        if not (living_room_heater and bath_room_heater):
+            return
+
         # Main layout
         main_layout = BoxLayout(orientation='horizontal', spacing=20, padding=20)
         
         # Living room heater control
-        living_room_control = HeaterControl('Living Room')
+        living_room_control = HeaterControl(living_room_heater)
         main_layout.add_widget(living_room_control)
         
         # Separator line
@@ -392,7 +357,7 @@ class LobergTuya(App):
         main_layout.add_widget(separator)
         
         # Bathroom heater control
-        bathroom_control = HeaterControl('Bathroom')
+        bathroom_control = HeaterControl(living_room_heater)
         main_layout.add_widget(bathroom_control)
         
         return main_layout

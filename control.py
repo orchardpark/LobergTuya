@@ -8,10 +8,11 @@ kesser_heater_product_id: str = "sa7ty0oxseyuzzlp"
 
 @dataclass
 class KesserHeaterStatus:
-    current_temp: float
-    set_temp: float
+    current_temp: int
+    set_temp: int
     power: bool
-    offline: bool
+    online: bool
+    display: bool
 
 # Connect to the heater
 class KesserHeater:
@@ -31,6 +32,7 @@ class KesserHeater:
             output += f" Power: {'ON' if dps.get('1') else 'OFF'}\n"
             output += f" Current Temp: {dps.get('3', 'Unknown')}°C\n"
             output += f" Target Temp: {dps.get('2', 'Unknown')}°C\n"
+            output += f" Display: {'OFF' if dps.get('10') else 'ON'}"
             return output
         else:
             return "Failed to retrieve status."
@@ -39,9 +41,9 @@ class KesserHeater:
         data = self.heater.status()
         if "dps" in data:
             dps = data["dps"]
-            return KesserHeaterStatus(float(dps.get('3', '-99')), float(dps.get('2', '-99')), dps.get('1'), False)
+            return KesserHeaterStatus(int(dps.get('3', '-99')), int(dps.get('2', '-99')), bool(dps.get('1')), True, not bool(dps.get('10')))
         else:
-            return KesserHeaterStatus(0, 0, False, True)
+            return KesserHeaterStatus(0, 0, False, False, False)
 
 
     def turn_on(self):
@@ -56,6 +58,12 @@ class KesserHeater:
         """Set the target temperature, ignore if outside range"""
         if 5 <= temp <= 40:  
             self.heater.set_value("2", temp)
+    
+    def turn_display_on(self):
+        self.heater.set_value("10", False)
+    
+    def turn_display_off(self):
+        self.heater.set_value("10", True)
 
     @override
     def __str__(self) -> str:
@@ -65,7 +73,7 @@ class KesserHeater:
     def __repr__(self) -> str:
         return self.__str__()
 
-def parse_devices():
+def parse_devices() -> list[KesserHeater]:
     devices = []
     with open('devices.json', 'r') as fin:
         data = json.load(fin)
