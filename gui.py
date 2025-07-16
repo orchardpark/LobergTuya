@@ -9,16 +9,18 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.widget import Widget
 from kivy.clock import Clock
 from kivy.graphics import Color, Line, Rectangle
+from kivy.graphics.instructions import InstructionGroup
+from kivy.core.text import Label as CoreLabel
 import random
-import time
 from collections import deque
+from kivy.config import Config
 
 
 class TemperatureGraph(Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.size_hint_y = None
-        self.height = 120
+        self.height = 300
         self.temp_history = deque(maxlen=50)  # Store last 50 temperature readings
         self.set_temp_history = deque(maxlen=50)
         self.bind(size=self.update_graph, pos=self.update_graph)
@@ -38,11 +40,16 @@ class TemperatureGraph(Widget):
             Color(0.1, 0.1, 0.1, 1)
             Rectangle(pos=self.pos, size=self.size)
             
-            # Grid lines
+            # Grid lines and temperature labels
             Color(0.3, 0.3, 0.3, 1)
-            for i in range(1, 4):
+            temp_min, temp_max = 10, 35
+            temp_range = temp_max - temp_min
+            
+            # Draw horizontal grid lines at temperature intervals
+            for i in range(5):  # 5 horizontal lines (including top and bottom)
                 y = self.y + (self.height / 4) * i
-                Line(points=[self.x, y, self.x + self.width, y], width=1)
+                if i > 0 and i < 4:  # Don't draw lines at very top and bottom
+                    Line(points=[self.x, y, self.x + self.width, y], width=1)
             
             # Temperature range for scaling (10°C to 35°C)
             temp_min, temp_max = 10, 35
@@ -57,6 +64,24 @@ class TemperatureGraph(Widget):
                     y = self.y + ((temp - temp_min) / temp_range) * self.height
                     points.extend([x, y])
                 Line(points=points, width=2)
+            
+            # Draw temperature scale labels
+            Color(0.7, 0.7, 0.7, 1)
+            for i in range(5):  # 5 labels from 10°C to 35°C
+                temp_value = temp_min + (temp_range / 4) * i
+                y = self.y + (self.height / 4) * i
+                
+                # Create text label
+                label = CoreLabel(text=f'{temp_value:.0f}°C', font_size=10)
+                label.refresh()
+                texture = label.texture
+                
+                # Position label to the left of the graph
+                label_x = self.x - 35
+                label_y = y - texture.height / 2
+                
+                # Draw the label
+                Rectangle(texture=texture, pos=(label_x, label_y), size=texture.size)
             
             # Draw current temperature line
             if len(self.temp_history) >= 2:
@@ -81,6 +106,7 @@ class HeaterControl(BoxLayout):
         self.set_temp = 22.0      # Starting set temperature
         self.is_on = True         # Heater power state
         self.is_online = True     # Device connectivity state
+        self.display_on = True    # Display state
         
         # Title
         title = Label(
@@ -115,6 +141,16 @@ class HeaterControl(BoxLayout):
         )
         status_layout.add_widget(self.power_status)
         
+        # Display status
+        self.display_status = Label(
+            text='● Display On',
+            font_size='14sp',
+            color=(0.2, 0.8, 0.2, 1),  # Green
+            size_hint_x=None,
+            width=90
+        )
+        status_layout.add_widget(self.display_status)
+        
         # Add spacer
         status_layout.add_widget(Label())
         
@@ -139,7 +175,7 @@ class HeaterControl(BoxLayout):
         self.add_widget(self.set_temp_label)
         
         # Control buttons
-        button_layout = GridLayout(cols=3, spacing=10, size_hint_y=None, height=50)
+        button_layout = GridLayout(cols=4, spacing=10, size_hint_y=None, height=50)
         
         decrease_btn = Button(
             text='−',
@@ -163,6 +199,15 @@ class HeaterControl(BoxLayout):
             on_press=self.toggle_power
         )
         button_layout.add_widget(self.power_btn)
+        
+        # Display toggle button
+        self.display_btn = Button(
+            text='Display Off',
+            font_size='14sp',
+            background_color=(0.8, 0.2, 0.2, 1),  # Red
+            on_press=self.toggle_display
+        )
+        button_layout.add_widget(self.display_btn)
         
         self.add_widget(button_layout)
         
@@ -239,6 +284,11 @@ class HeaterControl(BoxLayout):
             self.is_on = not self.is_on
             self.update_display()
     
+    def toggle_display(self, instance):
+        if self.is_online:
+            self.display_on = not self.display_on
+            self.update_display()
+    
     def toggle_online(self, instance):
         self.is_online = not self.is_online
         self.update_display()
@@ -271,8 +321,17 @@ class HeaterControl(BoxLayout):
         self.graph.add_temperature(self.current_temp, self.set_temp)
     
     def update_display(self):
-        self.current_temp_label.text = f'Current: {self.current_temp:.1f}°C'
-        self.set_temp_label.text = f'Set: {self.set_temp:.1f}°C'
+        # Update temperature displays based on display state
+        if self.display_on:
+            self.current_temp_label.text = f'Current: {self.current_temp:.1f}°C'
+            self.set_temp_label.text = f'Set: {self.set_temp:.1f}°C'
+            self.current_temp_label.color = (1, 1, 1, 1)  # White
+            self.set_temp_label.color = (1, 1, 1, 1)  # White
+        else:
+            self.current_temp_label.text = 'Current: ---'
+            self.set_temp_label.text = 'Set: ---'
+            self.current_temp_label.color = (0.3, 0.3, 0.3, 1)  # Dark gray
+            self.set_temp_label.color = (0.3, 0.3, 0.3, 1)  # Dark gray
         
         # Update online status
         if self.is_online:
@@ -296,12 +355,27 @@ class HeaterControl(BoxLayout):
             self.power_btn.text = 'Turn On'
             self.power_btn.background_color = (0.2, 0.8, 0.2, 1)  # Green
         
+        # Update display status and button
+        if self.display_on:
+            self.display_status.text = '● Display On'
+            self.display_status.color = (0.2, 0.8, 0.2, 1)  # Green
+            self.display_btn.text = 'Display Off'
+            self.display_btn.background_color = (0.8, 0.2, 0.2, 1)  # Red
+        else:
+            self.display_status.text = '● Display Off'
+            self.display_status.color = (0.8, 0.2, 0.2, 1)  # Red
+            self.display_btn.text = 'Display On'
+            self.display_btn.background_color = (0.2, 0.8, 0.2, 1)  # Green
+        
         # Disable controls when offline
         if not self.is_online:
             self.power_btn.disabled = True
             self.power_btn.background_color = (0.5, 0.5, 0.5, 1)  # Gray
+            self.display_btn.disabled = True
+            self.display_btn.background_color = (0.5, 0.5, 0.5, 1)  # Gray
         else:
             self.power_btn.disabled = False
+            self.display_btn.disabled = False
 
 
 class LobergTuya(App):

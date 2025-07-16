@@ -47,20 +47,15 @@ class KesserHeater:
     def turn_on(self):
         """Turn the heater on."""
         self.heater.set_value("1", True)
-        print("Heater turned ON.")
 
     def turn_off(self):
         """Turn the heater off."""
         self.heater.set_value("1", False)
-        print("Heater turned OFF.")
 
     def set_temperature(self, temp):
-        """Set the target temperature (adjust range as needed)."""
-        if 10 <= temp <= 30:  # Example valid range
+        """Set the target temperature, ignore if outside range"""
+        if 5 <= temp <= 40:  
             self.heater.set_value("2", temp)
-            print(f"Target temperature set to {temp}°C.")
-        else:
-            print("Temperature out of range!")
 
     @override
     def __str__(self) -> str:
